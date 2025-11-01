@@ -63,7 +63,7 @@ class HNSW:
 
             for level in range(min(L, l), -1, -1):
                 W = self.seach_layer(q, ep, self.ef_construction, level)
-                neighbors, dists = self.select_neighbors(q, W, self.M, level)
+                neighbors, dists = self.select_neighbors(idx, W, self.M, level)
 
                 # add bidirectional connections from neighbors to q
                 for neighbor, dist in zip(neighbors, dists):
@@ -77,12 +77,14 @@ class HNSW:
                     neighbor_connections = list(self.graph[level][neighbor].keys())
 
                     if len(neighbor_connections) > maxM: # shrink connections of neighbor
-                        neighbor_new_connections, neighbor_new_dist = self.select_neighbors(self.data[neighbor], neighbor_connections, maxM, level)
+                        neighbor_new_connections, neighbor_new_dist = self.select_neighbors(neighbor, neighbor_connections, maxM, level)
 
                         # set new neighborhood of neighbor
                         self.graph[level][neighbor].clear()
                         for n, d in zip(neighbor_new_connections, neighbor_new_dist):
                             self.graph[level][neighbor][n] = d
+                            if n == neighbor:
+                                print("BUG!")
 
                 ep = W[0]
 
@@ -142,23 +144,25 @@ class HNSW:
         return W[:K]
 
     def select_neighbors(self,
-                         q: ArrayLike,
+                        #  q: ArrayLike,
+                         q_id: int,
                          W: list[int],
                          M: int,
                          level: int) -> tuple[list[int], list[float]]:
         proba = self.rng.uniform(0.0, 1.0)
         if proba <= 0.5:
-            return self.select_neighbors_simple(q, W, M)
-        return self.select_neighbors_heuristic(q, W, M, level)
+            return self.select_neighbors_simple(q_id, W, M)
+        return self.select_neighbors_heuristic(q_id, W, M, level)
 
     def select_neighbors_simple(self,
-                                q: ArrayLike,
+                                # q: ArrayLike,
+                                q_id: int,
                                 C: list[int],
                                 M: int) -> tuple[list[int], list[float]]:
         nearest_neighbors = []
 
         for c in C:
-            dist = -self.distance(self.data[c], q)
+            dist = -self.distance(self.data[c], self.data[q_id])
             heapq.heappush(nearest_neighbors, (dist, c))
 
             if len(nearest_neighbors) > M:
@@ -174,7 +178,8 @@ class HNSW:
         return neighbors_id, neighbors_distance
 
     def select_neighbors_heuristic(self,
-                                   q: ArrayLike,
+                                #    q: ArrayLike,
+                                   q_id: int,
                                    C: list[int],
                                    M: int,
                                    level: int,
@@ -184,15 +189,15 @@ class HNSW:
         W = set(C)
         W_queue = []
         for c in C:
-            heapq.heappush(W_queue, (self.distance(self.data[c], q), c))
+            heapq.heappush(W_queue, (self.distance(self.data[c], self.data[q_id]), c))
 
         if extend_candidates:
             temp_W = W.copy()
             for e in temp_W:
                 for en_id, en_dist in self.graph[level][e].items():
-                    if en_id not in W:
+                    if en_id not in W and en_id != q_id:
                         W.add(en_id)
-                        heapq.heappush(W_queue, (self.distance(self.data[en_id], q), en_id))
+                        heapq.heappush(W_queue, (self.distance(self.data[en_id], self.data[q_id]), en_id))
 
         W_d = []
 
