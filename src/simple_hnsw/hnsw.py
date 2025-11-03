@@ -1,5 +1,10 @@
 import numpy as np
+import pandas as pd
 import heapq
+
+import networkx as nx
+import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 
 from typing import Literal
 from numpy.typing import ArrayLike, NDArray
@@ -32,6 +37,7 @@ class HNSW:
 
         self.graph: list[dict[int, dict]] = [] # graph[level][i] is a dict of (neighbor_id, dist)
         self.data: list[NDArray] = [] # data[i] is a embeded vector
+        self.level: list[int] = [] # level of datas
 
         self.cur_element_count = 0
         self.entry_point = -1
@@ -39,12 +45,12 @@ class HNSW:
 
         self.rng = np.random.default_rng(random_seed)
 
-    def insert_items(self, data: ArrayLike) -> None:
+    def insert_items(self, data: ArrayLike, visualize: bool = False) -> None:
         data = np.atleast_2d(data)
         for d in data:
-            self.insert(d)
+            self.insert(d, visualize)
 
-    def insert(self, q: ArrayLike) -> None:
+    def insert(self, q: ArrayLike, visualize: bool = False) -> None:
         q = np.array(q)
 
         W = []
@@ -53,6 +59,7 @@ class HNSW:
         l = int(-np.log(self.rng.uniform(0.0, 1.0)) * self.m_L)
 
         self.data.append(q)
+        self.level.append(l)
         idx = self.cur_element_count
         self.cur_element_count += 1
 
@@ -224,14 +231,182 @@ class HNSW:
 
         return R_id, R_dist
 
+    def visualize_layer(self, l: int):
+        """
+        Helper function of visualize_layers
+        """
+        if l < 0 or l > self.max_level:
+            print('Layer\'s level is out of range!')
+            return
+
+        fig = plt.figure(figsize=(10, 10))
+        if fig and fig.canvas and fig.canvas.manager:
+            fig.canvas.manager.set_window_title(f'HNSW Graph - Layer {l}')
+
+        G = nx.Graph(name=f'Layer {l}')
+
+        for node_id, node_neighbors in self.graph[l].items():
+            G.add_node(node_id)
+            for neighbor_id in node_neighbors.keys():
+                G.add_edge(node_id, neighbor_id)
+
+        pos = nx.spring_layout(G, seed=42)
+        nx.draw(G, pos)
+
+        plt.title(f'HNSW Graph - Layer {l}')
+        fig.canvas.draw_idle()
+
+    def visualize_layers(self, layers: list[int] | None = None):
+        if layers == None:
+            layers = [i for i in range(self.max_level + 1)]
+
+        plt.ion()
+
+        for l in layers:
+            self.visualize_layer(l)
+
+        plt.ioff()
+        plt.show(block=True)
+
+    def visualize_hierarchical_graph(self):
+        G0 = nx.Graph()
+        for node_id in self.graph[0].keys():
+            G0.add_node(node_id)
+            for neighbor_id in self.graph[0][node_id].keys():
+                G0.add_edge(node_id, neighbor_id)
+        pos_2d = nx.spring_layout(G0, dim=2, seed=42)
+
+        all_node_ids = set(self.graph[0].keys())
+        
+        # List of Traces
+        data_traces = []
+        
+        # Vertical trace
+        vertical_edge_x, vertical_edge_y, vertical_edge_z = [], [], []
+
+        # Build trace per layer l
+        for l in range(self.max_level + 1):
+            layer_node_data = []
+            layer_edge_x, layer_edge_y, layer_edge_z = [], [], []
+
+            for node_id in all_node_ids:
+                max_node_level = self.level[node_id]
+                x, y = pos_2d.get(node_id, (0, 0))
+
+                if l <= max_node_level:
+                    layer_node_data.append({
+                        'id': node_id, 
+                        'x': x, 
+                        'y': y, 
+                        'level': l
+                    })
+
+                # === B. DỮ LIỆU CẠNH NGANG (Tầng l) ===
+                if node_id in self.graph[l]:
+                    for neighbor_id in self.graph[l][node_id].keys():
+                        if node_id >= neighbor_id: 
+                            continue
+
+                        if neighbor_id in pos_2d:
+                            x_n, y_n = pos_2d[neighbor_id]
+                            z = l
+                            
+                            layer_edge_x.extend([x, x_n, None])
+                            layer_edge_y.extend([y, y_n, None])
+                            layer_edge_z.extend([z, z, None])
+
+                # Vertical edge trace
+                if l < max_node_level:
+                    vertical_edge_x.extend([x, x, None])
+                    vertical_edge_y.extend([y, y, None])
+                    vertical_edge_z.extend([l + 1, l, None])
+
+            # Create trace for current layer l
+            # Node trace at layer l
+            if layer_node_data:
+                df_layer_nodes = pd.DataFrame(layer_node_data)
+                data_traces.append(go.Scatter3d(
+                    x=df_layer_nodes['x'], y=df_layer_nodes['y'], z=df_layer_nodes['level'],
+                    mode='markers',
+                    marker=dict(
+                        symbol='circle',
+                        size=5,
+                        color='cyan',
+                        line=dict(color='black', width=0.5)),
+                    name=f'Nodes (Layer {l})',
+                    legendgroup=f'Layer_{l}',
+                    hoverinfo='text',
+                    # Description of node
+                    text=[f"ID: {id}<br>Layer: {l}" for id, l in zip(df_layer_nodes['id'], df_layer_nodes['level'])]
+                ))
+
+            # Edge trace at layer l
+            if layer_edge_x:
+                data_traces.append(go.Scatter3d(
+                    x=layer_edge_x, y=layer_edge_y, z=layer_edge_z,
+                    line=dict(width=0.5, color='#888'),
+                    hoverinfo='none',
+                    mode='lines',
+                    name=f'Edges (Layer {l})',
+                    legendgroup=f'Layer_{l}'
+                ))
+
+        # Create vertical trace
+        if vertical_edge_x:
+            data_traces.append(go.Scatter3d(
+                x=vertical_edge_x, y=vertical_edge_y, z=vertical_edge_z,
+                line=dict(width=0.5, color='#888'),
+                hoverinfo='none',
+                mode='lines',
+                name='Vertical Connections',
+                legendgroup='Vertical'
+            ))
+
+        if self.entry_point != -1:
+            x, y = pos_2d.get(self.entry_point, (0, 0))
+            df_entry = pd.DataFrame([{
+                'id': self.entry_point,
+                'x': x,
+                'y': y,
+                'level': self.max_level
+            }])
+            data_traces.append(go.Scatter3d(
+                x=df_entry['x'], y=df_entry['y'], z=df_entry['level'],
+                mode='markers',
+                marker=dict(
+                    symbol='circle',
+                    size=5,
+                    color='blue', 
+                    line=dict(color='black', width=0.5)),
+                name=f'Entry Point',
+                legendgroup=f'Layer_{self.max_level}',
+                hoverinfo='text',
+                # Description of entry point
+                text=[f"Entry Point's ID: {int(df_entry.iloc[0]['id'])}<br>Layer: {int(df_entry.iloc[0]['level'])}"]
+            ))
+
+        # Show figure
+        fig = go.Figure(data=data_traces,
+                        layout=go.Layout(
+                            title=f'HNSW 3D Graph Visualization (Max Level: {self.max_level})',
+                            scene=dict(
+                                xaxis=dict(title='X (Layout Position)', showbackground=False, showgrid=False, zeroline=False, visible=False),
+                                yaxis=dict(title='Y (Layout Position)', showbackground=False, showgrid=False, zeroline=False, visible=False),
+                                zaxis=dict(title='Z (Layer Index)', showbackground=False, showgrid=False, zeroline=False, nticks=self.max_level + 2) # Hiển thị ticks cho từng tầng
+                            ),
+                            hovermode='closest'
+                        ))
+
+        fig.show()
+
 if __name__ == '__main__':
-    train_data = np.random.rand(50, 100)
-    query_data = np.random.rand(10, 100)
+    train_data = np.random.rand(100, 100)
+    query_data = np.random.rand(3, 100)
 
     max_elements = 50
     dim = 100
-    M = 8
-    ef_construction = 16
+    M = 3
+    ef_construction = 6
 
     index = HNSW('l2', dim)
     index.init_index(max_elements, M, ef_construction)
@@ -251,12 +426,14 @@ if __name__ == '__main__':
     l = index.max_level
     ep = index.entry_point
 
-    print(index.max_level)
+    # print(index.max_level)
 
     W = index.knn_search(query_data[0], 10)
     dists = [l2_distance(query_data[0], train_data[w])**2 for w in W]
 
-    print(np.array(W))
-    print(np.array(dists))
+    # print(np.array(W))
+    # print(np.array(dists))
 
-    print('='*10)
+    index.visualize_hierarchical_graph()
+
+    # print('='*10)

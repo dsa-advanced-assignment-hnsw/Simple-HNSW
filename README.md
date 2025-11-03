@@ -1,102 +1,129 @@
 
 # Simple-HNSW
 
-A compact, educational implementation of the HNSW (Hierarchical Navigable Small World) approximate nearest neighbor algorithm in Python, alongside a brute-force baseline for comparison and testing.
+A Python implementation of the HNSW (Hierarchical Navigable Small World) algorithm for approximate nearest neighbor search, with performance benchmarking against the established `hnswlib` library.
 
-This repository is intended for learning and experimentation. It provides a small, readable HNSW implementation in `src/simple_hnsw` and a simple brute-force search implementation in `src/brute_force` so you can compare accuracy and performance.
+This project provides a clean, educational implementation of HNSW in Python, along with comparative benchmarking tools to evaluate its performance against the industry-standard `hnswlib` implementation.
 
-## Repository layout
+## Repository Layout
 
 - `src/simple_hnsw/`
-	- `hnsw.py` — a minimal, easy-to-read HNSW implementation (insert, knn search, neighbor selection, etc.).
-	- `distance_metrics.py` — distance functions used by the index (L2 and cosine).
+  - `hnsw.py` — Core HNSW implementation with insert and kNN search functionality
+  - `distance_metrics.py` — Implementation of distance metrics (L2)
 - `src/brute_force/`
-	- `brute_force_search.py` — straightforward KNN by computing distances to every point.
-- `tests/` — simple unit tests (run with `pytest`).
+  - `brute_force_search.py` — Baseline brute-force search implementation
+- `tests/`
+  - `test_hnsw.py` — Benchmarking and comparison with `hnswlib`
 
 ## Features
 
-- HNSW index supporting L2 and cosine distance.
-- Insert many vectors (`insert_items`) and run K-NN queries (`knn_search`).
-- Brute-force baseline for correctness and benchmarking.
+- Clean HNSW implementation optimized for readability and learning
+- L2 distance metric support
+- Comparative benchmarking with `hnswlib`
+- Brute-force baseline implementation
+- Performance measurement tools
 
 ## Requirements
 
 - Python 3.8+
-- See `requirements.txt` for exact dependencies. Install with:
+- NumPy
+- hnswlib (for benchmarking)
 
+Install dependencies:
 ```bash
-python -m pip install -r requirements.txt
+pip install -r requirements.txt
 ```
 
-## Quick usage
+## Quick Usage
 
-Below are short examples that demonstrate how to use the provided modules.
-
-### Brute-force search
+### Simple HNSW Implementation
 
 ```python
+from simple_hnsw import hnsw
 import numpy as np
-from src.brute_force.brute_force_search import brute_force_search
 
-train = np.random.rand(1000, 128)
-queries = np.random.rand(5, 128)
-K = 5
+# Initialize index
+dim = 100
+index = hnsw.HNSW('l2', dim)
+index.init_index(max_elements=10000, M=16, ef_construction=32)
 
-indices, distances = brute_force_search(train, queries, K=K)
-print(indices.shape)   # (num_queries, K)
-print(distances.shape) # (num_queries, K)
+# Add data
+data = np.random.rand(10000, dim)
+index.insert_items(data)
+
+# Search
+query = np.random.rand(dim)
+neighbors = index.knn_search(query, k=20)
 ```
 
-### Simple HNSW index
+### Comparison with hnswlib
 
 ```python
-import numpy as np
-from src.simple_hnsw.hnsw import HNSW
+import hnswlib
 
-dim = 128
-index = HNSW('l2', dim)
-index.init_index(max_elements=1000, M=8, ef_construction=100, random_seed=42)
+# Initialize hnswlib index
+index = hnswlib.Index('l2', dim)
+index.init_index(max_elements=10000, M=16, ef_construction=32)
 
-train = np.random.rand(500, dim)
-index.insert_items(train)
+# Add data
+index.add_items(data)
 
-q = np.random.rand(dim)
-neighbors = index.knn_search(q, K=5)
-print('neighbor ids:', neighbors)
+# Search
+neighbors, distances = index.knn_query(query, k=20)
 ```
 
-Notes:
-- The implementation is intentionally small and educational. It does not aim to be production-grade or highly optimized.
-- `init_index` must be called before inserting data.
+## Parameters
 
-## Tests
+Key parameters that affect performance and accuracy:
 
-Run the test suite with `pytest` from the project root:
+- `dim`: Dimensionality of the vectors
+- `M`: Maximum number of connections per element (default: 16)
+- `ef_construction`: Size of the dynamic candidate list during construction (default: 32)
+- `max_elements`: Maximum number of elements that can be stored in the index
 
+## Benchmarking
+
+Run the benchmark comparison:
 ```bash
-pytest -q
+python tests/test_hnsw.py
 ```
 
-There is a small test in `tests/test_hnsw.py` to check basic behavior.
+This will:
+1. Generate random test data (10,000 vectors, 100 dimensions)
+2. Build indices using both implementations
+3. Perform k-NN searches
+4. Compare build times and search times
+5. Verify search results
 
-## Development notes
+## Performance Tips
 
-- The HNSW implementation in `src/simple_hnsw/hnsw.py` contains a `__main__` section demonstrating a simple usage example; you can run it directly for a quick smoke test.
-- For experimentation, tweak parameters like `M`, `ef_construction`, and `ef` to see their effect on accuracy and graph construction.
+1. **Parameter Tuning**
+   - Increase `M` for better accuracy at the cost of memory and build time
+   - Higher `ef_construction` improves graph quality but increases build time
+   - For search, larger `ef` values give better accuracy but slower search
+
+2. **Memory Usage**
+   - Memory scales with `max_elements * M`
+   - Keep dimensionality (`dim`) and `M` reasonable for your use case
 
 ## Contributing
 
-Contributions are welcome. For small fixes or documentation updates, open a pull request with a short description of your change.
+Contributions are welcome! Areas for improvement:
+- Additional distance metrics
+- Performance optimizations
+- Extended benchmarking tools
+- Visualization utilities
 
-If you add features or refactor code, please:
-- Add tests for new or changed behavior
-- Keep the code readable and well-commented (this project is meant to teach the algorithm)
+Please ensure:
+- Code remains readable and well-documented
+- Include tests for new features
+- Benchmark results for performance changes
+
+## References
+
+1. Original HNSW paper: "Efficient and robust approximate nearest neighbor search using Hierarchical Navigable Small World graphs" by Yu. A. Malkov and D. A. Yashunin
+2. `hnswlib`: https://github.com/nmslib/hnswlib
 
 ## License
 
-No LICENSE file is included in the repository. If you plan to publish or share this project, consider adding a license (for example, MIT) to make reuse intentions explicit.
-
-## Contact / References
-
-- Implementation inspired by the original HNSW paper by Malkov & Yashunin. Use the paper as a reference for deeper understanding.
+[MIT License]
