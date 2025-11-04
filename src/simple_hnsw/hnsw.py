@@ -65,11 +65,11 @@ class HNSW:
 
         if self.entry_point != -1:
             for level in range(L, l, -1):
-                W = self.seach_layer(q, ep, 1, level)
+                W = self.search_layer(q, ep, 1, level)
                 ep = W[0]
 
             for level in range(min(L, l), -1, -1):
-                W = self.seach_layer(q, ep, self.ef_construction, level)
+                W = self.search_layer(q, ep, self.ef_construction, level)
                 neighbors, dists = self.select_neighbors(idx, W, self.M, level)
 
                 # add bidirectional connections from neighbors to q
@@ -101,7 +101,7 @@ class HNSW:
             for i in range(L, l):
                 self.graph.append({idx: {}})
 
-    def seach_layer(self,
+    def search_layer(self,
                     q: ArrayLike,
                     ep: int,
                     ef: int,
@@ -124,7 +124,7 @@ class HNSW:
                 if e_id not in visited:
                     visited.add(e_id)
                     e_dist = self.distance(self.data[e_id], q)
-                    # f_dist, f_id = W[0] # why the paper has this line?
+                    f_dist, f_id = W[0]
 
                     if e_dist < -f_dist or len(W) < ef:
                         heapq.heappush(candidates, (e_dist, e_id))
@@ -144,10 +144,10 @@ class HNSW:
         L = self.max_level
 
         for level in range(L, 0, -1):
-            W = self.seach_layer(q, ep, 1, level)
+            W = self.search_layer(q, ep, 1, level)
             ep = W[0]
 
-        W = self.seach_layer(q, ep, max(K, self.ef), 0)
+        W = self.search_layer(q, ep, max(K, self.ef), 0)
         return W[:K]
 
     def select_neighbors(self,
