@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 from dash import Dash, dcc, html, Input, Output, no_update
 
-from typing import Literal
+from typing import Literal, Any
 from numpy.typing import ArrayLike, NDArray
 
 from .distance_metrics import l2_distance, cosine_distance
@@ -289,9 +289,9 @@ class HNSW:
         Returns:
             tuple[list[int], list[float]]: A tuple containing the selected neighbor IDs and their distances.
         """
-        proba = self.rng.uniform(0.0, 1.0)
-        if proba <= 0.5:
-            return self.select_neighbors_simple(q_id, W, M)
+        # proba = self.rng.uniform(0.0, 1.0)
+        # if proba <= 0.5:
+        #     return self.select_neighbors_simple(q_id, W, M)
         return self.select_neighbors_heuristic(q_id, W, M, level)
 
     def select_neighbors_simple(self,
@@ -467,26 +467,35 @@ class HNSW:
     def _create_base_traces(self, node_positions):
         """
         Create static base traces for the HNSW graph visualization.
+        Updated: 
+        - Layers: Gradient Blues (Safe background color).
+        - Entry Point: Black (High contrast, avoids Red/Yellow/Green).
+        - Planes: Added for depth perception.
         """
-        x_nodes, y_nodes, z_nodes = [], [], []
         x_edges, y_edges, z_edges = [], [], []
         x_vedges, y_vedges, z_vedges = [], [], []
 
-        text_nodes = []
+        # 1. Compute Bounding Box for Planes
+        xs = [pos[0] for pos in node_positions.values()]
+        ys = [pos[1] for pos in node_positions.values()]
+        
+        padding = 0.1
+        if xs and ys:
+            x_min, x_max = min(xs) - padding, max(xs) + padding
+            y_min, y_max = min(ys) - padding, max(ys) + padding
+        else:
+            x_min, x_max, y_min, y_max = -1, 1, -1, 1
 
         all_node_ids = set()
         if self.graph:
             all_node_ids = set(self.graph[0].keys())
 
+        # Collect Edges
         for l in range(self.max_level + 1):
             for node_id in all_node_ids:
                 if (node_id, l) in node_positions:
                     x, y, z = node_positions[(node_id, l)]
-                    x_nodes.append(x)
-                    y_nodes.append(y)
-                    z_nodes.append(z)
-                    text_nodes.append(f"ID: {node_id}<br>Layer: {l}")
-
+                    
                     # Horizontal edges
                     if node_id in self.graph[l]:
                         for neighbor_id in self.graph[l][node_id]:
@@ -499,34 +508,82 @@ class HNSW:
 
                     # Vertical edges
                     if l < self.max_level and (node_id, l+1) in node_positions:
-                        xn, yn, zn = node_positions[(node_id, l+1)]
                         x_vedges.extend([x, x, None])
                         y_vedges.extend([y, y, None])
                         z_vedges.extend([l, l+1, None])
 
-        traces = [
-            # 1. Base Edges
+        traces: list[Any] = [
+            # 1. Base Edges (Light Grey - Neutral background)
             go.Scatter3d(x=x_edges, y=y_edges, z=z_edges, mode='lines', 
-                         line=dict(color='#888', width=1), hoverinfo='none', name='Edges'),
-            # 2. Base Vertical Edges
+                         line=dict(color='#cccccc', width=1), hoverinfo='none', name='Edges'),
+            # 2. Base Vertical Edges (Dashed Grey)
             go.Scatter3d(x=x_vedges, y=y_vedges, z=z_vedges, mode='lines', 
-                         line=dict(color='#888', width=1, dash='dash'), hoverinfo='none', name='Vertical Edges '),
-            # 3. Base Nodes
-            go.Scatter3d(x=x_nodes, y=y_nodes, z=z_nodes, mode='markers', 
-                         marker=dict(size=4, color='cyan', line=dict(color='black', width=0.5)), 
-                         text=text_nodes, hoverinfo='text', name='Nodes')
+                         line=dict(color='#cccccc', width=1, dash='dash'), hoverinfo='none', name='Vertical Edges ')
         ]
 
-        # Entry Point
+        # 3. Create Per-Layer Planes and Nodes
+        # Use 'Blues' colormap. It ranges from very light blue to dark blue.
+        cmap = plt.get_cmap('Blues')
+        
+        for l in range(self.max_level + 1):
+            # Intensity calculation:
+            # We avoid 0.0 (too white) and keep it within a visible blue range.
+            # Range: 0.4 (Light Blue) -> 0.9 (Royal Blue)
+            if self.max_level > 0:
+                intensity = 0.4 + 0.5 * (l / self.max_level)
+            else:
+                intensity = 0.6
+            
+            rgba = cmap(intensity)
+            color_hex = f'rgb({int(rgba[0]*255)}, {int(rgba[1]*255)}, {int(rgba[2]*255)})'
+            
+            # 3a. Plane (Surface)
+            plane_trace = go.Surface(
+                x=[[x_min, x_max], [x_min, x_max]],
+                y=[[y_min, y_min], [y_max, y_max]],
+                z=[[l, l], [l, l]],
+                opacity=0.1, # Very faint to not obstruct the view
+                showscale=False,
+                colorscale=[[0, color_hex], [1, color_hex]],
+                hoverinfo='none',
+                name=f'Plane L{l}'
+            )
+            traces.append(plane_trace)
+
+            # 3b. Nodes at this layer
+            x_nodes, y_nodes, z_nodes, text_nodes = [], [], [], []
+            for node_id in all_node_ids:
+                if (node_id, l) in node_positions:
+                    x, y, z = node_positions[(node_id, l)]
+                    x_nodes.append(x)
+                    y_nodes.append(y)
+                    z_nodes.append(z)
+                    text_nodes.append(f"ID: {node_id}<br>Layer: {l}")
+            
+            node_trace = go.Scatter3d(
+                x=x_nodes, y=y_nodes, z=z_nodes,
+                mode='markers',
+                marker=dict(
+                    size=5, 
+                    color=color_hex, 
+                    line=dict(color='#333', width=0.5) # Dark border for nodes
+                ),
+                text=text_nodes,
+                hoverinfo='text',
+                name=f'Nodes L{l}'
+            )
+            traces.append(node_trace)
+
+        # 4. Entry Point (Black - Neutral & Distinct)
         if self.entry_point != -1:
             if (self.entry_point, self.max_level) in node_positions:
                 x, y, z = node_positions[(self.entry_point, self.max_level)]
                 traces.append(go.Scatter3d(
                     x=[x], y=[y], z=[z],
                     mode='markers',
-                    marker=dict(symbol='circle', size=6, color='blue', line=dict(color='black', width=0.5)),
+                    marker=dict(symbol='circle', size=6, color='deeppink', line=dict(color='white', width=1)),
                     name='Entry Point',
-                    text=[f"Entry Point ID: {self.entry_point}"],
+                    text=[f"Entry Point ID: {self.entry_point}<br>Layer: {self.max_level}"],
                     hoverinfo='text'
                 ))
 
@@ -657,31 +714,33 @@ class HNSW:
 
     def visualize_search(self, q: ArrayLike, k: int = 1) -> list[int]:
         """
-        Visualize the search process for a query vector in 3D.
+        Visualize the search process for a query vector in 3D using Plotly.
 
         Args:
             q (ArrayLike): The query vector.
-            k (int, optional): The number of nearest neighbors to search for. Defaults to 1.
+            k (int): Number of nearest neighbors to find.
 
         Returns:
-            list[int]: The indices of the nearest neighbors found.
+            list[int]: Indices of the k nearest neighbors found.
         """
         q = np.array(q)
         search_log = []
 
+        # --- 1. Execution & Logging ---
+        # Capture internal events of the search algorithm (visits, comparisons, rejections)
         def logger(event):
             search_log.append(event)
 
-        # 1. Perform Search with Logging
-        # We use the instrumented knn_search which calls search_layer
         result_ids = self.knn_search(q, k, logger=logger)
 
-        # 2. Visualization with Plotly
+        # --- 2. Layout Preparation ---
+        # Compute static positions for nodes and generate base 3D environment
         node_positions = self._compute_layout()
         base_traces = self._create_base_traces(node_positions)
 
-        # Helper to get coords
+        # --- 3. Helper Functions for 3D Coordinates ---
         def get_coords(items):
+            """Extract (x, y, z) coordinates and text for a list of (node_id, layer)."""
             xs, ys, zs, items_text = [], [], [], []
             for node_id, l in items:
                 x, y, z = node_positions[(node_id, l)]
@@ -692,6 +751,7 @@ class HNSW:
             return xs, ys, zs, items_text
 
         def get_edge_coords(items):
+            """Generate line segments for edges between nodes in the same layer."""
             xs, ys, zs = [], [], []
             for (u, v), l in items:
                 ux, uy, uz = node_positions[(u, l)]
@@ -702,6 +762,7 @@ class HNSW:
             return xs, ys, zs
 
         def get_vedge_coords(items):
+            """Generate vertical line segments for transitions between layers."""
             xs, ys, zs = [], [], []
             for (u1, l1), (u2, l2) in items:
                 x1, y1, z1 = node_positions[(u1, l1)]
@@ -711,7 +772,41 @@ class HNSW:
                 zs.extend([z1, z2, None])
             return xs, ys, zs
 
-        # Define Fixed Traces (14 Traces) - MUST MATCH create_traces order
+        def reconstruct_path_coords(active_nodes, parent_map):
+            """
+            Reconstruct the path tree by backtracking from active nodes to the root.
+
+            Args:
+                active_nodes: Set of (node_id, layer) representing current candidates.
+                parent_map: Dictionary mapping (child, layer) -> (parent, layer).
+                
+            Returns:
+                lists of x, y, z coordinates for the path trace.
+            """
+            path_x, path_y, path_z = [], [], []
+            visited_edges = set()  # Prevent drawing the same segment multiple times
+
+            for node in active_nodes:
+                curr = node
+                # Backtrack until the Entry Point or a break in the chain is reached
+                while curr in parent_map:
+                    parent = parent_map[curr]
+
+                    # Store edge as tuple to check uniqueness
+                    edge_sig = (curr, parent)
+                    if edge_sig not in visited_edges:
+                        visited_edges.add(edge_sig)
+
+                        cx, cy, cz = node_positions[curr]
+                        px, py, pz = node_positions[parent]
+                        path_x.extend([px, cx, None])
+                        path_y.extend([py, cy, None])
+                        path_z.extend([pz, cz, None])
+
+                    curr = parent
+            return path_x, path_y, path_z
+
+        # --- 4. Trace Generation Factory ---
         def create_traces(
             sel_e_x, sel_e_y, sel_e_z,
             sel_ve_x, sel_ve_y, sel_ve_z,
@@ -720,44 +815,53 @@ class HNSW:
             sel_n_x, sel_n_y, sel_n_z, sel_n_text,
             rej_n_x, rej_n_y, rej_n_z, rej_n_text,
             con_n_x, con_n_y, con_n_z, con_n_text,
-            cur_x, cur_y, cur_z, cur_text
+            cur_x, cur_y, cur_z, cur_text,
+            path_x, path_y, path_z
         ):
-            # Start with base traces (0, 1, 2)
-            traces = list(base_traces) # Copy base traces
-
-            # Add dynamic traces
+            """Combine static base traces with dynamic animation data."""
+            traces = list(base_traces)
             traces.extend([
+                # Path Trace (Dark Orange): Shows the effective search trajectory
+                go.Scatter3d(
+                    x=path_x, y=path_y, z=path_z,
+                    mode='lines',
+                    line=dict(color='#FF8C00', width=6),
+                    opacity=0.8, name='Search Path', hoverinfo='none'
+                ),
+                # Dynamic Edges: Visual feedback for algorithm decisions
                 go.Scatter3d(x=sel_e_x, y=sel_e_y, z=sel_e_z, mode='lines', line=dict(color='green', width=4), name='Select Edge'),
-                go.Scatter3d(x=sel_ve_x, y=sel_ve_y, z=sel_ve_z, mode='lines', line=dict(color='green', width=4, dash='dash'), name='Select Edge'),
+                go.Scatter3d(x=sel_ve_x, y=sel_ve_y, z=sel_ve_z, mode='lines', line=dict(color='green', width=4, dash='dash'), name='Select V-Edge'),
                 go.Scatter3d(x=rej_e_x, y=rej_e_y, z=rej_e_z, mode='lines', line=dict(color='red', width=3), name='Reject Edge'),
                 go.Scatter3d(x=con_e_x, y=con_e_y, z=con_e_z, mode='lines', line=dict(color='yellow', width=3), name='Consider Edge'),
-
-                go.Scatter3d(x=sel_n_x, y=sel_n_y, z=sel_n_z, mode='markers', marker=dict(size=6, color='green', symbol='circle', line=dict(color='black', width=0.5)), text=sel_n_text, hoverinfo='text', name='Select'),
-                go.Scatter3d(x=rej_n_x, y=rej_n_y, z=rej_n_z, mode='markers', marker=dict(size=6, color='red', symbol='circle', line=dict(color='black', width=0.5)), text=rej_n_text, hoverinfo='text', name='Reject'),
-                go.Scatter3d(x=con_n_x, y=con_n_y, z=con_n_z, mode='markers', marker=dict(size=6, color='yellow', symbol='circle', line=dict(color='black', width=0.5)), text=con_n_text, hoverinfo='text', name='Consider'),
-                go.Scatter3d(x=cur_x, y=cur_y, z=cur_z, mode='markers', marker=dict(size=10, color='green', symbol='circle', line=dict(color='black', width=1)), text=cur_text, hoverinfo='text', name='Current')
+                # Dynamic Nodes: Color-coded status of visited points
+                go.Scatter3d(x=sel_n_x, y=sel_n_y, z=sel_n_z, mode='markers', marker=dict(size=6, color='green', symbol='circle', line=dict(color='black', width=0.5)), text=sel_n_text, hoverinfo='text', name='Select Node'),
+                go.Scatter3d(x=rej_n_x, y=rej_n_y, z=rej_n_z, mode='markers', marker=dict(size=6, color='red', symbol='circle', line=dict(color='black', width=0.5)), text=rej_n_text, hoverinfo='text', name='Reject Node'),
+                go.Scatter3d(x=con_n_x, y=con_n_y, z=con_n_z, mode='markers', marker=dict(size=6, color='yellow', symbol='circle', line=dict(color='black', width=0.5)), text=con_n_text, hoverinfo='text', name='Consider Node'),
+                go.Scatter3d(x=cur_x, y=cur_y, z=cur_z, mode='markers', marker=dict(size=10, color='green', symbol='circle', line=dict(color='black', width=1)), text=cur_text, hoverinfo='text', name='Current Focus')
             ])
             return traces
 
-        # Animation Frames
+        # --- 5. Animation Frame Generation ---
         frames = []
 
+        # State Variables
         current_node = -1
         current_layer = -1
-        current_W_set = set()
+        current_W_set = set()   # Tracks current candidate set 'W'
+        node_parents = {}       # Maps child -> parent for path reconstruction
 
         for i, log in enumerate(search_log):
             event = log['event']
 
-            # Current state
+            # Ephemeral visual containers (reset every frame)
             current_selected_edge = set()
             current_selected_vedge = set()
             current_considered_edge = set()
             current_rejected_edge = set()
-
             current_considered_node = set()
             current_rejected_node = set()
 
+            # --- Event Processing Logic ---
             if event == 'init_knn_search':
                 current_node = log['entry_point']
                 current_layer = log['max_level']
@@ -767,6 +871,9 @@ class HNSW:
                 u = log['ep']
                 l_from = log['from_layer']
                 l_to = log['to_layer']
+
+                # Register vertical parent-child relationship
+                node_parents[(u, l_to)] = (u, l_from)
 
                 current_selected_vedge.add(((u, l_from), (u, l_to)))
                 current_layer = l_to
@@ -785,28 +892,27 @@ class HNSW:
             elif event == 'consider_neighbor':
                 neighbor = log['neighbor']
                 u, v = sorted((current_node, neighbor))
-
                 current_considered_edge.add(((u, v), current_layer))
                 current_considered_node.add((neighbor, current_layer))
+
+                # Record genealogy: First time seeing neighbor -> current_node is parent
+                if (neighbor, current_layer) not in node_parents:
+                    node_parents[(neighbor, current_layer)] = (current_node, current_layer)
 
             elif event == 'accept_neighbor':
                 neighbor = log['neighbor']
                 u, v = sorted((current_node, neighbor))
-
                 current_selected_edge.add(((u, v), current_layer))
                 current_W_set.add((neighbor, current_layer))
 
             elif event == 'reject_neighbor':
                 neighbor = log['neighbor']
                 u, v = sorted((current_node, neighbor))
-
                 current_rejected_node.add((neighbor, current_layer))
                 current_rejected_edge.add(((u, v), current_layer))
 
             elif event == 'reject_node':
                 reject_node = log['reject_node']
-                u, v = sorted((current_node, reject_node))
-
                 current_rejected_node.add((reject_node, current_layer))
                 current_W_set.remove((reject_node, current_layer))
 
@@ -814,8 +920,9 @@ class HNSW:
                 reject_nodes = log['reject_nodes']
                 for id in reject_nodes:
                     current_rejected_node.add((id, current_layer))
+                    current_W_set.remove((id, current_layer))
 
-            # Calculate Coords for all dynamic traces
+            # --- Coordinate Extraction ---
             sel_e_x, sel_e_y, sel_e_z = get_edge_coords(current_selected_edge)
             sel_ve_x, sel_ve_y, sel_ve_z = get_vedge_coords(current_selected_vedge)
             rej_e_x, rej_e_y, rej_e_z = get_edge_coords(current_rejected_edge)
@@ -826,6 +933,13 @@ class HNSW:
             con_n_x, con_n_y, con_n_z, con_n_text = get_coords(current_considered_node)
             cur_x, cur_y, cur_z, cur_text = get_coords([(current_node, current_layer)])
 
+            # --- Dynamic Path Reconstruction ---
+            # Re-trace path only for nodes that are currently valid candidates
+            active_targets = current_W_set.copy()
+            active_targets.add((current_node, current_layer))
+            path_x, path_y, path_z = reconstruct_path_coords(active_targets, node_parents)
+
+            # --- Construct Frame ---
             frame_traces = create_traces(
                 sel_e_x, sel_e_y, sel_e_z,
                 sel_ve_x, sel_ve_y, sel_ve_z,
@@ -834,45 +948,40 @@ class HNSW:
                 sel_n_x, sel_n_y, sel_n_z, sel_n_text,
                 rej_n_x, rej_n_y, rej_n_z, rej_n_text,
                 con_n_x, con_n_y, con_n_z, con_n_text,
-                cur_x, cur_y, cur_z, cur_text
+                cur_x, cur_y, cur_z, cur_text,
+                path_x, path_y, path_z
             )
-
             frames.append(go.Frame(data=frame_traces, name=f'step_{i}'))
 
-        # Final Result Frame
+        # --- 6. Final Result Frame ---
+        # Generate a clean view showing only the final K nearest neighbors and their paths
+        final_targets = set()
         final_x, final_y, final_z, final_text = [], [], [], []
+
         for r_id in result_ids:
-            rx, ry, rz = node_positions[(r_id, 0)]
-            final_x.append(rx)
-            final_y.append(ry)
-            final_z.append(rz)
-            final_text.append(f"ID: {r_id}<br>Layer: 0")
+            if (r_id, 0) in node_positions:
+                final_targets.add((r_id, 0))
+                rx, ry, rz = node_positions[(r_id, 0)]
+                final_x.append(rx)
+                final_y.append(ry)
+                final_z.append(rz)
+                final_text.append(f"Result ID: {r_id}<br>Layer: 0")
 
-        # Final frame: Highlight result nodes
+        final_path_x, final_path_y, final_path_z = reconstruct_path_coords(final_targets, node_parents)
+
         final_traces = create_traces(
-            [], [], [], # Sel E
-            [], [], [], # Sel VE
-            [], [], [], # Rej E
-            [], [], [], # Con E
-            [], [], [], [], # Sel N
-            [], [], [], [], # Rej N
-            [], [], [], [], # Con N
-            final_x, final_y, final_z, final_text # Cur (reused for result)
+            [], [], [], [], [], [], [], [], [], [], [], [],
+            [], [], [], [], [], [], [], [], [], [], [], [],
+            final_x, final_y, final_z, final_text,
+            final_path_x, final_path_y, final_path_z
         )
-        # Override name/color for final result if needed, but reusing 'Current Focus' (Green) is okay for Top K
-
         frames.append(go.Frame(data=final_traces, name='final'))
 
-        # Initial Layout
+        # --- 7. Figure Initialization & Rendering ---
         initial_traces = create_traces(
-            [], [], [], # Sel E
-            [], [], [], # Sel VE
-            [], [], [], # Rej E
-            [], [], [], # Con E
-            [], [], [], [], # Sel N
-            [], [], [], [], # Rej N
-            [], [], [], [], # Con N
-            [], [], [], []  # Cur N
+            [], [], [], [], [], [], [], [], [], [], [], [],
+            [], [], [], [], [], [], [], [], [], [], [], [],
+            [], [], [], [], [], [], []
         )
 
         fig = go.Figure(
@@ -882,10 +991,11 @@ class HNSW:
                 scene=dict(
                     xaxis=dict(title='X', showbackground=False, showgrid=False, zeroline=False, visible=False),
                     yaxis=dict(title='Y', showbackground=False, showgrid=False, zeroline=False, visible=False),
-                    zaxis=dict(title='Layer', showbackground=False, showgrid=False, zeroline=False, nticks=self.max_level + 2)
+                    zaxis=dict(title='Level', showbackground=False, showgrid=False, zeroline=False, nticks=self.max_level + 2)
                 ),
                 updatemenus=[{
                     'type': 'buttons',
+                    'showactive': False,
                     'buttons': [
                         {
                             'label': 'Play',
@@ -912,11 +1022,10 @@ class HNSW:
         )
 
         fig.show()
-
         return result_ids
 
 if __name__ == '__main__':
-    train_data = np.random.rand(10, 100)
+    train_data = np.random.rand(50, 100)
     query_data = np.random.rand(3, 100)
 
     max_elements = 50
@@ -929,13 +1038,11 @@ if __name__ == '__main__':
 
     index.insert_items(train_data)
 
-    index.ef = 5
-
     l = index.max_level
     ep = index.entry_point
 
     W = index.knn_search(query_data[0], 10)
     dists = [l2_distance(query_data[0], train_data[w])**2 for w in W]
 
-    index.visualize_hierarchical_graph()
-    index.visualize_search(query_data[0], k=3)
+    # index.visualize_hierarchical_graph()
+    index.visualize_search(query_data[0], k=10)
