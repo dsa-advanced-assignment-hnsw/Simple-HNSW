@@ -13,6 +13,18 @@ def brute_force_search(space: Literal['l2', 'cosine'],
                        train_dataset: ArrayLike,
                        query_vectors: ArrayLike,
                        K: int = 1) -> tuple[NDArray, NDArray]:
+    """
+    Perform brute force search to find K nearest neighbors.
+
+    Args:
+        space (Literal['l2', 'cosine']): The distance metric to use ('l2' or 'cosine').
+        train_dataset (ArrayLike): The dataset to search in.
+        query_vectors (ArrayLike): The query vectors.
+        K (int, optional): The number of nearest neighbors to return. Defaults to 1.
+
+    Returns:
+        tuple[NDArray, NDArray]: A tuple containing the indices and distances of the K nearest neighbors.
+    """
     train_dataset = np.atleast_2d(train_dataset)
     query_vectors = np.atleast_2d(query_vectors)
 
