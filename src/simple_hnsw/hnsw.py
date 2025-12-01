@@ -246,7 +246,7 @@ class HNSW:
                     'to_layer': level,
                     'ep': ep
                 })
-            W = self.seach_layer(q, ep, 1, level, logger=logger)
+            W = self.search_layer(q, ep, 1, level, logger=logger)
             ep = W[0]
 
         if logger:
@@ -257,7 +257,7 @@ class HNSW:
                 'ep': ep
             })
 
-        W = self.seach_layer(q, ep, max(K, self.ef), 0, logger=logger)
+        W = self.search_layer(q, ep, max(K, self.ef), 0, logger=logger)
 
         if logger:
             reject_nodes = []
