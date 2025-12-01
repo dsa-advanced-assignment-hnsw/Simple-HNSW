@@ -89,11 +89,11 @@ class HNSW:
 
         if self.entry_point != -1:
             for level in range(L, l, -1):
-                W = self.seach_layer(q, ep, 1, level)
+                W = self.search_layer(q, ep, 1, level)
                 ep = W[0]
 
             for level in range(min(L, l), -1, -1):
-                W = self.seach_layer(q, ep, self.ef_construction, level)
+                W = self.search_layer(q, ep, self.ef_construction, level)
                 neighbors, dists = self.select_neighbors(idx, W, self.M, level)
 
                 # add bidirectional connections from neighbors to q
@@ -125,7 +125,7 @@ class HNSW:
             for i in range(L, l):
                 self.graph.append({idx: {}})
 
-    def seach_layer(self,
+    def search_layer(self,
                     q: ArrayLike,
                     ep: int,
                     ef: int,
@@ -246,7 +246,7 @@ class HNSW:
                     'to_layer': level,
                     'ep': ep
                 })
-            W = self.seach_layer(q, ep, 1, level, logger=logger)
+            W = self.search_layer(q, ep, 1, level, logger=logger)
             ep = W[0]
 
         if logger:
@@ -257,7 +257,7 @@ class HNSW:
                 'ep': ep
             })
 
-        W = self.seach_layer(q, ep, max(K, self.ef), 0, logger=logger)
+        W = self.search_layer(q, ep, max(K, self.ef), 0, logger=logger)
 
         if logger:
             reject_nodes = []
