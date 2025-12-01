@@ -23,7 +23,7 @@ It includes benchmarking tools to compare performance against the industry-stand
 
 1.  **Clone the repository:**
     ```bash
-    git clone https://github.com/yourusername/Simple-HNSW.git
+    git clone https://github.com/dsa-advanced-assignment-hnsw/Simple-HNSW.git
     cd Simple-HNSW
     ```
 
