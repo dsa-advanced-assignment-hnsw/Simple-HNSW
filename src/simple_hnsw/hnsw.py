@@ -389,7 +389,7 @@ class HNSW:
         while R:
             dist, id = heapq.heappop(R)
             R_id.append(id)
-            R_dist.append(-dist)
+            R_dist.append(dist)
 
         return R_id, R_dist
 
