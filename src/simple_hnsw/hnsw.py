@@ -110,12 +110,16 @@ class HNSW:
                     if len(neighbor_connections) > maxM: # shrink connections of neighbor
                         neighbor_new_connections, neighbor_new_dist = self.select_neighbors(neighbor, neighbor_connections, maxM, level)
 
+                        new_connections_set = set(neighbor_new_connections)
+                        for n in neighbor_connections:
+                            if n not in new_connections_set:
+                                self.graph[level][n].pop(neighbor)
+                                self.graph[level][neighbor].pop(n)
+
                         # set new neighborhood of neighbor
-                        self.graph[level][neighbor].clear()
                         for n, d in zip(neighbor_new_connections, neighbor_new_dist):
                             self.graph[level][neighbor][n] = d
-                            if n == neighbor:
-                                print("BUG!")
+                            self.graph[level][n][neighbor] = d
 
                 ep = W[0]
 
