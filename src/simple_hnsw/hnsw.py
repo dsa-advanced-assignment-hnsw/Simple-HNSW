@@ -104,19 +104,18 @@ class HNSW:
 
         self.rng = np.random.default_rng(random_seed)
 
-    def insert_items(self, data: ArrayLike, visualize: bool = False) -> None:
+    def insert_items(self, data: ArrayLike) -> None:
         """
         Batch inserts multiple vectors into the index.
 
         Args:
             data (ArrayLike): Input data, typically an (N, dim) array.
-            visualize (bool, optional): Trigger for visualization hooks. Defaults to False.
         """
         data = np.atleast_2d(data)
         for d in data:
-            self.insert(d, visualize)
+            self.insert(d)
 
-    def insert(self, q: ArrayLike, visualize: bool = False) -> None:
+    def insert(self, q: ArrayLike) -> None:
         """
         Inserts a single vector into the HNSW graph.
 
@@ -129,7 +128,6 @@ class HNSW:
 
         Args:
             q (ArrayLike): The query vector to insert.
-            visualize (bool, optional): Reserved for visualization callbacks. Defaults to False.
         """
         q = np.array(q)
 
@@ -195,15 +193,17 @@ class HNSW:
         if len(connections) > maxM:
             new_connections, new_dists = self.select_neighbors(u, connections, maxM, level)
 
-            kept_neighbors = set(new_connections)
+            old_neighbors = set(connections)
+            new_neighbors = set(new_connections)
+
+            for n, d in zip(new_connections, new_dists):
+                if n not in old_neighbors:
+                    self._add_bidirectional_connection(u, n, d, level)
+
             for n in connections:
-                if n in kept_neighbors:
-                    # Update distance (redundant if unchanged, but safe)
-                    self._add_bidirectional_connection(u, n, self.graph[level][u][n], level)
-                else:
-                    # Remove the edge from both u and the neighbor n
-                    self.graph[level][n].pop(u)
+                if n not in new_neighbors:
                     self.graph[level][u].pop(n)
+                    self.graph[level][n].pop(u)
 
     def search_layer(self,
                     q: ArrayLike,
